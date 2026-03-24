@@ -349,33 +349,61 @@ st.markdown(
 )
 
 
-@st.cache_resource
-def load_model_cached(model_path: str):
-    if not os.path.exists(model_path):
-        return None, f"Model file not found: {model_path}"
-
+def _is_lfs_pointer(path: str) -> bool:
     try:
-        with open(model_path, "rb") as f:
+        with open(path, "rb") as f:
             header = f.read(80)
-    except Exception as exc:
-        return None, f"Could not read model file: {exc}"
-
-    if header.startswith(b"version https://git-lfs.github.com/spec/v1"):
-        return None, (
-            "Model file is a Git LFS pointer, not the real binary model. "
-            "Upload the actual `dyslexia_model.pkl` file to the repo."
-        )
-
-    try:
-        return joblib.load(model_path), None
-    except Exception as exc:
-        return None, f"Model load failed: {exc.__class__.__name__}: {exc}"
+        return header.startswith(b"version https://git-lfs.github.com/spec/v1")
+    except Exception:
+        return False
 
 
-def preprocess_image(image, img_size=64):
+@st.cache_resource
+def load_model_cached():
+    candidates = [
+        ("dyslexia_cnn_model_advance.h5", "keras"),
+        ("dyslexia_cnn_model.h5", "keras"),
+        ("dyslexia_model.pkl", "sklearn"),
+    ]
+
+    for model_path, model_kind in candidates:
+        if not os.path.exists(model_path):
+            continue
+
+        if _is_lfs_pointer(model_path):
+            return None, (
+                f"`{model_path}` is a Git LFS pointer, not the real model file. "
+                "Commit the actual binary and redeploy."
+            )
+
+        try:
+            if model_kind == "keras":
+                from tensorflow.keras.models import load_model as keras_load_model
+
+                model = keras_load_model(model_path)
+            else:
+                model = joblib.load(model_path)
+            return {"model": model, "kind": model_kind, "path": model_path}, None
+        except ModuleNotFoundError as exc:
+            return None, (
+                f"Missing dependency for `{model_path}`: {exc}. "
+                "Ensure requirements include the needed package."
+            )
+        except Exception as exc:
+            return None, f"Model load failed for `{model_path}`: {exc.__class__.__name__}: {exc}"
+
+    return None, (
+        "No model file found. Expected one of: "
+        "`dyslexia_cnn_model_advance.h5`, `dyslexia_cnn_model.h5`, `dyslexia_model.pkl`."
+    )
+
+
+def preprocess_image(image, img_size=64, model_kind="keras"):
     gray = image.convert("L")
     resized = gray.resize((img_size, img_size))
-    array = np.array(resized, dtype=np.float32)
+    array = np.array(resized, dtype=np.float32) / 255.0
+    if model_kind == "keras":
+        return array.reshape(1, img_size, img_size, 1)
     return array.flatten().reshape(1, -1)
 
 
@@ -440,14 +468,15 @@ def main():
             """
         )
 
-    model_path = "dyslexia_model.pkl"
-    model, model_error = load_model_cached(model_path)
-    if model is None:
-        st.error(model_error or "Unable to load `dyslexia_model.pkl`.")
-        st.caption(
-            "For Streamlit Cloud: make sure the real `.pkl` binary is committed (not an LFS pointer) and then redeploy."
-        )
+    loaded_model, model_error = load_model_cached()
+    if loaded_model is None:
+        st.error(model_error or "Unable to load model.")
+        st.caption("For Streamlit Cloud: commit the real model binary (not an LFS pointer) and redeploy.")
         st.stop()
+    model = loaded_model["model"]
+    model_kind = loaded_model["kind"]
+    model_path = loaded_model["path"]
+    st.caption(f"Loaded model: `{model_path}`")
 
     img_size = 64
     st.markdown('<div class="section-title">Upload handwriting sample</div>', unsafe_allow_html=True)
@@ -484,14 +513,19 @@ def main():
             st.markdown('<div class="card">', unsafe_allow_html=True)
             st.subheader("Analysis result")
             with st.spinner("Analyzing handwriting..."):
-                input_data = preprocess_image(image, img_size)
-                prediction = model.predict(input_data)
-                pred_idx = int(prediction[0])
-                if hasattr(model, "predict_proba"):
-                    probabilities = model.predict_proba(input_data)[0]
-                    confidence = float(np.max(probabilities) * 100.0)
+                input_data = preprocess_image(image, img_size, model_kind)
+                if model_kind == "keras":
+                    prediction = model.predict(input_data, verbose=0)[0]
+                    pred_idx = int(np.argmax(prediction))
+                    confidence = float(np.max(prediction) * 100.0)
                 else:
-                    confidence = 100.0
+                    prediction = model.predict(input_data)
+                    pred_idx = int(prediction[0])
+                    if hasattr(model, "predict_proba"):
+                        probabilities = model.predict_proba(input_data)[0]
+                        confidence = float(np.max(probabilities) * 100.0)
+                    else:
+                        confidence = 100.0
                 labels = ["Corrected", "Normal", "Reversal"]
                 if 0 <= pred_idx < len(labels):
                     result = labels[pred_idx]
