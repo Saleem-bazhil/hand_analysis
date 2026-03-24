@@ -1,9 +1,9 @@
 import os
 
-import cv2
+import joblib
 import numpy as np
 import streamlit as st
-from tensorflow.keras.models import load_model
+from PIL import Image
 
 
 st.set_page_config(
@@ -353,14 +353,14 @@ st.markdown(
 def load_model_cached(model_path: str):
     if not os.path.exists(model_path):
         return None
-    return load_model(model_path)
+    return joblib.load(model_path)
 
 
 def preprocess_image(image, img_size=64):
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    resized = cv2.resize(gray, (img_size, img_size))
-    normalized = resized / 255.0
-    return normalized.reshape(1, img_size, img_size, 1)
+    gray = image.convert("L")
+    resized = gray.resize((img_size, img_size))
+    array = np.array(resized, dtype=np.float32)
+    return array.flatten().reshape(1, -1)
 
 
 def main():
@@ -424,11 +424,11 @@ def main():
             """
         )
 
-    model_path = "dyslexia_cnn_model_advance.h5"
+    model_path = "dyslexia_model.pkl"
     model = load_model_cached(model_path)
     if model is None:
         st.error(
-            "Model file not found. Ensure `dyslexia_cnn_model_advance.h5` is in the app directory."
+            "Model file not found. Ensure `dyslexia_model.pkl` is in the app directory."
         )
         st.stop()
 
@@ -450,9 +450,9 @@ def main():
             unsafe_allow_html=True,
         )
     else:
-        file_bytes = np.asarray(bytearray(uploaded_file.read()), dtype=np.uint8)
-        image = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
-        if image is None:
+        try:
+            image = Image.open(uploaded_file).convert("RGB")
+        except Exception:
             st.error("Could not decode image. Please upload a valid PNG/JPG file.")
             st.stop()
 
@@ -468,11 +468,18 @@ def main():
             st.subheader("Analysis result")
             with st.spinner("Analyzing handwriting..."):
                 input_data = preprocess_image(image, img_size)
-                prediction = model.predict(input_data, verbose=0)
-                pred_idx = int(np.argmax(prediction))
-                confidence = float(np.max(prediction) * 100.0)
+                prediction = model.predict(input_data)
+                pred_idx = int(prediction[0])
+                if hasattr(model, "predict_proba"):
+                    probabilities = model.predict_proba(input_data)[0]
+                    confidence = float(np.max(probabilities) * 100.0)
+                else:
+                    confidence = 100.0
                 labels = ["Corrected", "Normal", "Reversal"]
-                result = labels[pred_idx]
+                if 0 <= pred_idx < len(labels):
+                    result = labels[pred_idx]
+                else:
+                    result = "Normal"
 
                 st.markdown(
                     f"""
