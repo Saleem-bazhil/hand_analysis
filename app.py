@@ -424,11 +424,11 @@ def main():
             """
         )
 
-    model_path = "dyslexia_model.pkl"
+    model_path = "dyslexia_cnn_model_advance.h5"
     model = load_model_cached(model_path)
     if model is None:
         st.error(
-            "Model file not found. Ensure `dyslexia_model.pkl` is in the app directory."
+            "Model file not found. Ensure `dyslexia_cnn_model_advance.h5` is in the app directory."
         )
         st.stop()
 
