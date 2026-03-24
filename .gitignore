@@ -1,0 +1,52 @@
+# Python cache / bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Build / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.ipynb_checkpoints/
+
+# Logs and local runtime files
+*.log
+*.tmp
+
+# Environment and local secrets
+.env
+.env.*
+.streamlit/secrets.toml
+
+# ML model artifacts
+*.pkl
+*.joblib
+
+# Large archives
+*.zip
+*.rar
+*.7z
+*.tar
+*.gz
+
+# Local datasets (keep code/models in Git, skip heavy training data)
+Gambo/
+
+# Editor / OS files
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
