@@ -352,8 +352,24 @@ st.markdown(
 @st.cache_resource
 def load_model_cached(model_path: str):
     if not os.path.exists(model_path):
-        return None
-    return joblib.load(model_path)
+        return None, f"Model file not found: {model_path}"
+
+    try:
+        with open(model_path, "rb") as f:
+            header = f.read(80)
+    except Exception as exc:
+        return None, f"Could not read model file: {exc}"
+
+    if header.startswith(b"version https://git-lfs.github.com/spec/v1"):
+        return None, (
+            "Model file is a Git LFS pointer, not the real binary model. "
+            "Upload the actual `dyslexia_model.pkl` file to the repo."
+        )
+
+    try:
+        return joblib.load(model_path), None
+    except Exception as exc:
+        return None, f"Model load failed: {exc.__class__.__name__}: {exc}"
 
 
 def preprocess_image(image, img_size=64):
@@ -424,11 +440,12 @@ def main():
             """
         )
 
-    model_path = "dyslexia_cnn_model_advance.h5"
-    model = load_model_cached(model_path)
+    model_path = "dyslexia_model.pkl"
+    model, model_error = load_model_cached(model_path)
     if model is None:
-        st.error(
-            "Model file not found. Ensure `dyslexia_cnn_model_advance.h5` is in the app directory."
+        st.error(model_error or "Unable to load `dyslexia_model.pkl`.")
+        st.caption(
+            "For Streamlit Cloud: make sure the real `.pkl` binary is committed (not an LFS pointer) and then redeploy."
         )
         st.stop()
 
